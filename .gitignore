@@ -4,6 +4,8 @@ out
 log.log
 **/node_modules
 *.pyc
+*.zip
+*.xml
 *.vsix
 envVars.txt
 **/.vscode/.ropeproject/**
