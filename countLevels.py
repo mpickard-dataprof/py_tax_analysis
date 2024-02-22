@@ -60,7 +60,10 @@ def extractElementInfo(node):
         level_name = label[1][:-1]
 
     ## -- get heading (if there is one)
-    text = node[1].text
+    if (node[1].text):
+        text = node[1].text.strip()
+    else:
+        text = None
 
     dict_info = {
         'id': id,
