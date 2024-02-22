@@ -1,9 +1,16 @@
 from lxml import etree
 import pandas as pd
-import stanza
 
 # define the namespace
-ns = {'': "http://xml.house.gov/schemas/uslm/1.0",}
+namespace = {'': "http://xml.house.gov/schemas/uslm/1.0",
+             'xml' : "http://www.w3.org/1999/xhtml"}
+
+# define levels to visit
+levels = ['subtitle', 'chapter', 'subchapter', 'part', 'subpart', 'section', 
+          'subsection', 'paragraph', 'chapeau', 'continuation', 'content', 'table', 'subparagraph', 'clause', 
+          'subclause', 'item', 'subitem', 'subsubitem']
+
+levels = ['{'+namespace['']+'}'+level for level in levels]
 
 # the dictionary list will hold the columns for the dataframe
 dict_list = []
@@ -13,78 +20,83 @@ def joinNodeText(node):
     ## and joins the text into a single string
     return ' '.join([t.strip() for t in node.itertext() if t.strip() != ""])
 
+def getParentIdentifier(node):
+    if('identifier' not in node.getparent().attrib.keys()):
+        return None
+    else:
+        return node.getparent().attrib['identifier']
 
 def extractElementInfo(node):
-    ## -- get id
     ## extractElementInfo - returns a dict with the id, level, 
     ## level name, and joined texts from nodes of subtree
+    
+    ## -- get identifier, which is different from id
+    ## the identifier is a path to the node
     if ('identifier' not in node.attrib.keys()):
         # if there is no id, chances are there is no text or
         ## no level name (i.e., .tag), so skipping these nodes
-        return None
+        print("did not find an identifier in: " + node.tag + "...")
+        ## if there's not identifier than we are processing a 'chapeau',
+        ## 'content', 'table', or 'continuation' element, so just extract
+        ## the text
+        return {
+            'id': None,
+            'level': getLevel(node),
+            'level_name': None,
+            'parent': getParentIdentifier(node),
+            'text': joinNodeText(node)
+        }
     else:
         id = node.attrib['identifier']
 
-    ## -- get level
-    assert(node.tag)
-    level = node.tag.split('}')[1]
+    ## -- get level (e.g., 'section', 'subsection', etc)
+    level = getLevel(node)
     
-    ## -- get level name
+    ## -- get level name 
     label = node[0].text.split()
     if (len(label) < 2):
         level_name = label[0]
     else:
         level_name = label[1][:-1]
 
-    ## -- get text
-    # extract complete text for subsections only
-    # for all other higher level, extract only the 
-    # heading text
-    if (level == 'subsection'):
-        text = joinNodeText(node)
-    else: 
-        text = node[1].text
+    ## -- get heading (if there is one)
+    text = node[1].text
 
     dict_info = {
         'id': id,
         'level': level,
         'level_name': level_name,
+        'parent': getParentIdentifier(node),
         'text': text
     }
 
     return dict_info
 
-
-
+def getLevel(node):
+    assert(node.tag)
+    level = node.tag.split('}')[1]
+    return level
 
 # these are the parts we want to remove
 # I'm considering these "not part of USC 26" (they are meta information)
 tags = ['note', 'notes', 'toc', 'meta', 'sourceCredit']
 
-def removeTagTypes(tagList, xmlNode, namespace):
+def removeTagTypes(tagList, xmlNode, ns):
     for tag in tagList:
-        nodeList = xmlNode.findall(".//" + tag, namespace)
+        nodeList = xmlNode.findall(".//" + tag, ns)
         for node in nodeList:
             parent = node.getparent()
             parent.remove(node)
 
 # parse the XML file
-tree = etree.parse("/data/rstudio/corpi/downloads/usc26.xml")
+tree = etree.parse("./downloads/usc26.xml")
 root = tree.getroot()
 
-# remove "meta" parts
-removeTagTypes(tags, root, ns)
+# Step #1: remove "meta" parts
+removeTagTypes(tags, root, namespace)
 
-## !!NOTE:!! Only go down to level of 'subsection' things get messy with text nodes
-## below 'subsection'
-levels = ['subtitle', 'chapter', 'subchapter', 'part', 'subpart', 'section', 
-            'subsection']
 
-namespace = '{http://xml.house.gov/schemas/uslm/1.0}'
 
-levels = [namespace+level for level in levels]
-
-# extract nodes down to subsection
 for element in root.iter(tag = levels):
     dict_data = extractElementInfo(element)
     
