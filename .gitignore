@@ -30,6 +30,7 @@ pythonFiles/get-pip.py
 debug_coverage*/**
 languageServer/**
 languageServer.*/**
+output/**
 bin/**
 obj/**
 .pytest_cache
