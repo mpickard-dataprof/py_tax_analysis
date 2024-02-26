@@ -194,7 +194,7 @@ class UscReader:
         if not os.path.exists("output"):
             os.mkdir("./output")
 
-        df.to_csv("./output/usc26.csv")
+        df.to_csv("./output/usc26.csv", index_label="row")
 
 
 usc = UscReader("./downloads/usc26.xml")
