@@ -11,6 +11,21 @@ def countLevels(df):
     return df.set_index('level')
 
 def removeDuplicateText(df):
+    """A utility function that removes text that duplicate the text of 
+    parent levels. The USC Title 26 XML file has <content>, <continuation>,
+    and <chapeau> tags that are not logically children of the tags they
+    reside in -- by that, I mean they are not true "levels" of the USC
+    document. This function removes those duplicate levels and returns
+    the deduplicated dataframe.
+
+    Args:
+        df (pandas.DataFrame): The Title 26 dataframe generated from parsing
+        the XML file. It needs to have 'id', 'parent', 'level' and 'text'
+        columns.
+
+    Returns:
+        pandas.DataFrame: A dataframe with the duplicated levels dropped.
+    """
     # parent-to-child is 1-to-many. So 'id' acts as the parent identifier
     # and 'parent' (which is the parent id of the child) acts as the child
     # identifier.  This allows a parent to be matched with many children.
