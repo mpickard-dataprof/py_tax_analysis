@@ -1,6 +1,7 @@
 import pandas as pd
+import numpy as np
 
-# df = pd.read_csv("./output/usc26.csv")
+df = pd.read_csv("./output/usc26.csv")
 
 def countLevels(df):
     levels = df['level'].unique()
@@ -54,5 +55,79 @@ def removeDuplicateText(df):
     # drop them from the original df
     return df.drop(drop_index)
 
+def get_num_words(df):
+    # need a "text" column
+    assert(df.text)
+    # TODO: find a way to assert that it's a string column
+
+    df['numWords'] = [len(str(text).split()) for text in df.text]
+    return df
+
+
+# NOTE: It was orders of magnitude faster to generate the section
+# dataframe from the XML (see usc_xml_to_df.py) rather than reassemble 
+# the parts of the section like I attempt here with combine_sections()
+    
+# def combine_sections(df):
+#     """Combines text of subparts of a section into one string that is 
+#     equivalent to the complete text of the section. Returns a dataframe
+#     with the section id, id of the section parent, and the full section
+#     text.
+
+#     Args:
+#         df (pandas.DataFrame): expecting the dataframe returned by
+#         UscReader.XmltoDataframe(), which contains a level id, parent id,
+#         and text.
+#     """
+#     # assert that the df contains the needed columns
+#     assert('text' in df.columns)
+#     assert('id' in df.columns)
+#     assert('parent' in df.columns)
+
+#     # get unique lists of sections and their parents
+#     section_list = df[df['level'] == 'section'].id.unique()
+#     parent_list = df[df['level'] == 'section'].parent
+
+#     # iterate through the section list
+#     # for each section, find all rows that belong in that section
+
+#     section_text_list = []    
+#     for section in section_list:
+#         # pattern to match the exact section.
+#         # specifically, had to handle cases such as not matching
+#         # '/us/usc/t26/s1563/' or '/us/usc/t26/s1563/f/2/B' 
+#         # when searching for '/us/usc/t26/s1' (i.e., section 1)
+#         section_regex = r'^' + section + r'(?:(?:\/)?|(?:\/.*))$'
+
+#         # some ids (such as "content" and "continuation" levels) are "NaN", 
+#         # so search for regex in "parent" field as well. A match in the
+#         # "parent" field for NaN levels means their text belongs in that section
+#         filtered_df = df[
+#             df['id'].str.contains(section_regex, na=False) | 
+#             df['parent'].str.contains(section_regex)
+#             ]
+        
+#         # join the parts of the section together and add it
+#         # to the list of section texts
+#         section_text_list.append(
+#             # a ". " separate would break up "real" sentences --
+#             # for instance, chapeaus which end in "-" (so would 
+#             # "-."), so I opted for a " " separator.
+#             # no good solution when trying to look forward to the 
+#             # effects on sentence parsing.
+#             filtered_df['text'].str.cat(sep=' ')
+#         )
+
+#     new_df = pd.DataFrame.from_dict(
+#         {
+#             "section": section_list,
+#             "parent": parent_list,
+#             "text": section_text_list
+#         }
+#     )
+
+#     new_df.to_csv("output/section_df.csv")
+
 # print(countLevels(df))
 # print(countLevels(removeDuplicateText(df)))
+# combine_sections(df)

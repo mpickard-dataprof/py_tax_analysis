@@ -141,6 +141,44 @@ class UscReader:
 
         return dict_info
 
+    def _extractSectionInfo(self, node):
+        """
+        A utility function to extract values of interest from a USC section node.
+
+        Args:
+            node (Element): An etree element that is a USC section to extract
+            information from.
+
+        Returns:
+            dict: A dictionary containing the node id (USC path), the level 
+            (which will always be "section"), the section number, the section's 
+            parent, and the full section text.
+        """
+        # make sure we received a section node
+        level = self._getLevel(node)
+        assert level == "section"
+
+        ## extractElementInfo - returns a dict with the id, level,
+        ## level name, and joined texts from nodes of subtree
+
+        # a section node should have an id, level, level_name (i.e., the
+        # section number), parent, and text.
+        
+        # get section number
+        label = node[0].text.split()
+        if len(label) < 2:
+            level_name = label[0]
+        else:
+            level_name = label[1][:-1]
+
+        return {
+            'id': node.attrib['identifier'],
+            'level': level,
+            'level_name': level_name,
+            'parent': self._getParentIdentifier(node),
+            'text': self._joinNodeText(node),
+        }
+
     def _getLevel(self, node):
         """
         A utility function to return the level (chapter, section, subsection,
@@ -246,5 +284,37 @@ class UscReader:
         df = self._removeDuplicateText(df)
         return df.to_csv("./output/usc26.csv", index_label="row")
 
-usc = UscReader("./downloads/usc26.xml")
-usc.xmlToDataframe()
+    
+    # NOTE: It was orders of magnitude faster to generate the section
+    # dataframe from the XML rather than reassemble the parts of the
+    # section from the dataframe produced by xmlToDataframe().
+    
+    def xmlToSectionDataframe(self):
+        """
+        Converts the USC XML format to a Pandas dataframe. Each row of the
+        dataframe is a USC section the full text of that section. Saves the 
+        CSV file to an 'output' directory, which is created if it doesn't exist.
+        """
+        # the dictionary list will hold the columns for the dataframe
+        dict_list = []
+
+        self._removeTagTypes()
+
+        # just extract section tags
+        section = "{"+self._namespace[""]+"}section"
+        for element in self._root.iter(tag=section):
+            dict_data = self._extractSectionInfo(element)
+
+            if dict_data != None:
+                dict_list.append(dict_data)
+
+        # build and save dataframe
+        df = pd.DataFrame.from_dict(dict_list)
+
+        if not os.path.exists("output"):
+            os.mkdir("./output")
+
+        return df.to_csv("./output/usc26_sections.csv", index_label="row")
+    
+# usc = UscReader("./downloads/usc26.xml")
+# usc.xmlToSectionDataframe()
