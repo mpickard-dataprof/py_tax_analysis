@@ -1,7 +1,9 @@
+from transformers import BertTokenizer
 import pandas as pd
 import numpy as np
+from scipy.stats import entropy
 
-df = pd.read_csv("./output/usc26.csv")
+df = pd.read_csv("./output/usc26_sections.csv")
 
 def countLevels(df):
     levels = df['level'].unique()
@@ -62,6 +64,28 @@ def get_num_words(df):
 
     df['numWords'] = [len(str(text).split()) for text in df.text]
     return df
+
+def calc_shannon_entropy(text, tokenizer):
+    tokens = tokenizer.tokenize(text)
+    value,counts = np.unique(tokens, return_counts=True)
+    return entropy(counts)
+
+def get_shannon_entropy(df, cased=True):
+    if(cased):
+        tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-cased")
+    else:
+        tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")
+
+    df['entropy'] = [calc_shannon_entropy(text, tokenizer) for text in df.text]
+    return df
+
+# print(countLevels(df))
+# print(countLevels(removeDuplicateText(df)))
+# combine_sections(df)
+print(get_shannon_entropy(df).tail())
+
+
+
 
 
 # NOTE: It was orders of magnitude faster to generate the section
@@ -128,6 +152,3 @@ def get_num_words(df):
 
 #     new_df.to_csv("output/section_df.csv")
 
-# print(countLevels(df))
-# print(countLevels(removeDuplicateText(df)))
-# combine_sections(df)
