@@ -16,6 +16,25 @@ class UscDatasetBuilder:
     # NOTE: These regex patterns use atomic groups which are not natively
     # supported in Python until 3.11. <3.11 need to import `regex` (not `re`).
 
+    ### --- NOTES ---- ###
+    # Made deliberate decision to focus on internal and external with respect
+    # to sections, so:
+    #    - External references are section level and above
+    #    - Internal references are subsection level and below
+    # Matching single (ex. Title 18) and compound multiple references (Subtitles A, B, and C)
+    #   - thus compound multiple references count as "many" references
+    # The first word does not always identify the type of reference. For example,
+    # in Section 1:
+    #    - "section 2(a)" is a reference to a subsection, not a section
+    #    - "subparagraph (A)(ii)" refers to a clause
+    #    - "sections 63(c)(4) and 151(d)(4)(A))" refers to a paragraph and
+    #      a subparagraph
+    # so...will need to take this into account if we ever want a count 
+    # references to specific internal levels (e.g., subsection, paragraph, etc).
+    # The regex patterns were complicated and weren't completely sufficient--for
+    # example, the matches would have trailing commas, "or", and "and"--so I 
+    # took "after-match passes" to clean them up.
+
     ### EXTERNAL REFERENCE regex definitions ###
 
     # EXAMPLES: Title 9 * Title 18a * titles 9 and 10 * Titles 9, 12a, 13, or 15
@@ -72,15 +91,33 @@ class UscDatasetBuilder:
                        __subclause_ref, __item_ref, __subitem_ref, __subsubitem_ref]
 
     def __init__(self, filepath) -> None:
+        """Constructor for UscDatasetBuilder class. It loads a huggingface
+        Dataset
+
+        Args:
+            filepath (str): Path to huggingface Dataset file.
+        """
         self._ds = load_dataset("csv", data_files=filepath, split='train')
         # self._ds = self._ds.select(range(4))
-        self._cased = True
 
     # protected members
 
     # public members
-    def add_tokens(self, cased=True) -> None:
-        if self._cased:
+    def add_tokens(self, cased=False, num_proc=6) -> None:
+        """Creates a huggingface Tokenizer and adds a column to the Dataset
+        with a list of the tokens from the Tokenizer. The tokens are extract
+        from the text column of the Dataset.
+
+        Args:
+            cased (bool, optional): Determines whether the Tokenizer should
+            be case-sensitive or not. Defaults to False.
+            num_proc (integer, optional): number of processes to use. Defaults 
+            to 6.
+        """
+
+        assert("text" in self._ds.column_names)
+
+        if cased:
             self._tokenizer = BertTokenizer.from_pretrained(
                 "google-bert/bert-base-cased"
             )
@@ -92,14 +129,39 @@ class UscDatasetBuilder:
         self._ds = self._ds.map(
             lambda row: self._tokenizer(row["text"], return_tensors="np"), 
             batched=True,
-            num_proc=12
+            num_proc=num_proc
         )
 
-    def add_shannon_entropy(self):
+    ## TODO: implement a version of "add_shannon_entropy" based on unique words
+    ## so use str.split()
+    def add_shannon_entropy(self) -> None:
+        """Calculates the Shannon Entropy from the numeric tokens created from
+        UscDatasetBuilder.add_tokens and inserts the results in the 'entropy'
+        column of the Dataset.
+
+        NOTE: The entropy of the tokens will be different from the entropy
+        of the actual words, because--depending on the tokenizer--the tokens
+        will include stemmed words like "sect#". 
+        """
+        assert("input_ids" in self._ds.column_names)
+
         self._ds = self._ds.map(lambda x: {'entropy': entropy(x['input_ids'])})
         # print(self._ds['entropy'])
 
-    def _extract_references(self, text, type):
+    def _extract_references(self, text, type) -> list[str]:
+        """A utility function to find and return all the USC references--
+        either "external" or "internal" references--in the text provided.
+
+        Args:
+            text (str): A string of text to match USC references in.
+            type (str): Specifics whether to match "internal" or "external" 
+            references. "internal" uses the list of regexes in 
+            UscDatasetBuilder.__internal_refs. "external" uses the list of
+            regexes in UscDatasetBuilder.__external_refs.
+
+        Returns:
+            list[str]: A list of strings that are the matches references.
+        """
         assert(type == "internal" or type == "external")
         if (type == "internal"):
             ref_patterns = self.__internal_refs
@@ -116,21 +178,39 @@ class UscDatasetBuilder:
         ]
         return matches
 
-    def add_internal_references(self):
+    def add_internal_references(self) -> None:
+        """Adds a column to the Dataset with a list of the matched internal
+        references found in the section text.
+        """
+
+        assert("text" in self._ds.column_names)
         self._ds = self._ds.map(
             lambda x: {"internal_refs": self._extract_references(x['text'], "internal")}
         )
 
         # print(self._ds['internal_refs'])
 
-    def add_external_references(self):
+    def add_external_references(self) -> None:
+        """Adds a column to the Dataset with a list of the matched external
+        references found in the section text.
+        """
+
+        assert("text" in self._ds.column_names)
         self._ds = self._ds.map(
             lambda x: {"external_refs": self._extract_references(x['text'], "external")}
         )
 
         # print(self._ds['external_refs'])
 
-    def add_word_tokens(self):
+    def add_word_tokens(self) -> None:
+        """Adds a column with the word tokens. The tokenizer used in add_tokens()
+        just adds a column with numeric tokens. Functions like add_avg_token_length()
+        need the actual words.
+
+        NOTE: the word tokens are stemmed (depending on the tokenizer used), so
+        "average word length" may not be accurate.
+        """
+        assert("input_ids" in self._ds.column_names)
         self._ds = self._ds.map(
             lambda x: {"tokens": self._tokenizer.convert_ids_to_tokens(x["input_ids"])}
         )
@@ -138,13 +218,22 @@ class UscDatasetBuilder:
 
     ## NOTE: tokens are abbreviated and stemmed...so, may need to split words to get
     ## true average word length.
-    def add_avg_token_length(self):
+    def add_avg_token_length(self) -> None:
+        """Adds a column ("avg_word_length") that contains the average word 
+        token length). Word length is a simple measure of complexity."""
+
+        assert("tokens" in self._ds.column_names)
         self._ds = self._ds.map(
             lambda x: {"avg_word_length": np.mean([len(word) for word in x['tokens']])}
         )
         # print(self._ds['avg_word_length'])
 
     def get_num_rows(self):
+        """Returns the number of rows in the Dataset
+
+        Returns:
+            int: Number of rows.
+        """
         return self._ds.num_rows
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
