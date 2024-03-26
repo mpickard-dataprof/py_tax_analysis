@@ -1,5 +1,5 @@
 from datasets import load_dataset
-from transformers import BertTokenizer
+from transformers import BertTokenizerFast
 from scipy.stats import entropy
 import numpy as np
 import regex as re
@@ -118,13 +118,15 @@ class UscDatasetBuilder:
         assert("text" in self._ds.column_names)
 
         if cased:
-            self._tokenizer = BertTokenizer.from_pretrained(
-                "spacy/en_core_web_md"
+            self._tokenizer = BertTokenizerFast.from_pretrained(
+                "google-bert/bert-base-cased"
             )
         else:
-            self._tokenizer = BertTokenizer.from_pretrained(
-                "spacy/en_core_web_md"
+            self._tokenizer = BertTokenizerFast.from_pretrained(
+                "google-bert/bert-base-uncased"
             )
+        
+        print(self._tokenizer.is_fast)
 
         self._ds = self._ds.map(
             lambda row: self._tokenizer(row["text"], return_tensors="np"), 
@@ -239,17 +241,22 @@ class UscDatasetBuilder:
         )
         # print(self._ds['tokens'][1])
 
-    ## NOTE: tokens are abbreviated and stemmed...so, may need to split words to get
-    ## true average word length.
+    def _get_word_lengths(self, text):
+        return [len(word) for word in text.split()]
+
+    def add_avg_word_length(self) -> None:
+        self._ds = self._ds.map(
+            lambda x: {"avg_word_length": np.mean(self._get_word_lengths(x['text']))}
+        )
+
     def add_avg_token_length(self) -> None:
-        """Adds a column ("avg_word_length") that contains the average word 
+        """Adds a column ("avg_token_length") that contains the average word 
         token length). Word length is a simple measure of complexity."""
 
         assert("tokens" in self._ds.column_names)
         self._ds = self._ds.map(
-            lambda x: {"avg_word_length": np.mean([len(word) for word in x['tokens']])}
+            lambda x: {"avg_token_length": np.mean([len(word) for word in x['tokens']])}
         )
-        # print(self._ds['avg_word_length'])
 
     def get_num_rows(self):
         """Returns the number of rows in the Dataset
@@ -263,12 +270,13 @@ class UscDatasetBuilder:
         self._ds.to_csv(path)
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
-ds.add_tokens()
-ds.add_shannon_entropy()
-ds.add_word_tokens()
-ds.add_avg_token_length()
-ds.add_internal_references()
-ds.add_external_references()
-ds.add_num_internal_refs()
-ds.add_num_external_refs()
+ds.add_avg_word_length()
+# ds.add_tokens()
+# ds.add_shannon_entropy()
+# ds.add_word_tokens()
+# ds.add_avg_token_length()
+# ds.add_internal_references()
+# ds.add_external_references()
+# ds.add_num_internal_refs()
+# ds.add_num_external_refs()
 ds.save("output/usc26_sections_modified.csv")
