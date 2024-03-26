@@ -119,11 +119,11 @@ class UscDatasetBuilder:
 
         if cased:
             self._tokenizer = BertTokenizer.from_pretrained(
-                "google-bert/bert-base-cased"
+                "spacy/en_core_web_md"
             )
         else:
             self._tokenizer = BertTokenizer.from_pretrained(
-                "google-bert/bert-base-uncased"
+                "spacy/en_core_web_md"
             )
 
         self._ds = self._ds.map(
@@ -202,6 +202,29 @@ class UscDatasetBuilder:
 
         # print(self._ds['external_refs'])
 
+    def add_num_external_refs(self):
+        """Adds a column with the number of external references found in the section. 
+        These are references external to the section (i.e., section and above).
+        """
+        if("external_refs" not in self._ds.column_names):
+            self.add_external_references()
+        
+        self._ds = self._ds.map(
+            lambda x: {"num_ext_refs": len(x["external_refs"])}
+        )
+            
+    def add_num_internal_refs(self):
+        """Adds a colum with the number of internal references found in the section. 
+        These are references internal to the section (i.e., subsection and below).
+        """
+        if("internal_refs" not in self._ds.column_names):
+            self.add_internal_references()
+        
+        self._ds = self._ds.map(
+            lambda x: {"num_int_refs": len(x["internal_refs"])}
+        )
+            
+
     def add_word_tokens(self) -> None:
         """Adds a column with the word tokens. The tokenizer used in add_tokens()
         just adds a column with numeric tokens. Functions like add_avg_token_length()
@@ -240,10 +263,12 @@ class UscDatasetBuilder:
         self._ds.to_csv(path)
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
-# ds.add_tokens()
-# ds.add_shannon_entropy()
-# ds.add_word_tokens()
-# ds.add_avg_token_length()
+ds.add_tokens()
+ds.add_shannon_entropy()
+ds.add_word_tokens()
+ds.add_avg_token_length()
 ds.add_internal_references()
 ds.add_external_references()
+ds.add_num_internal_refs()
+ds.add_num_external_refs()
 ds.save("output/usc26_sections_modified.csv")
