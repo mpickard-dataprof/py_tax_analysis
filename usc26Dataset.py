@@ -266,11 +266,25 @@ class UscDatasetBuilder:
         """
         return self._ds.num_rows
 
+    def add_size(self) -> None:
+
+        self._ds = self._ds.map(
+            lambda x: {"size": len(x['text'])}
+        )
+
+    def add_num_words(self) -> None:
+
+        self._ds = self._ds.map(
+            lambda x: {"num_words": len([word for word in x['text'].split()])}
+        )
+
     def save(self, path):
         self._ds.to_csv(path)
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
 ds.add_avg_word_length()
+ds.add_size()
+ds.add_num_words()
 # ds.add_tokens()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
