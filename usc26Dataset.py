@@ -236,6 +236,9 @@ class UscDatasetBuilder:
         """
         return self._ds.num_rows
 
+    def save(self, path):
+        self._ds.to_csv(path)
+
 ds = UscDatasetBuilder("output/usc26_sections.csv")
 # ds.add_tokens()
 # ds.add_shannon_entropy()
@@ -243,3 +246,4 @@ ds = UscDatasetBuilder("output/usc26_sections.csv")
 # ds.add_avg_token_length()
 ds.add_internal_references()
 ds.add_external_references()
+ds.save("output/usc26_sections_modified.csv")
