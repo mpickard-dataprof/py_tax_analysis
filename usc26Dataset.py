@@ -1,5 +1,6 @@
 from datasets import load_dataset
-from transformers import BertTokenizerFast
+from nltk.probability import FreqDist
+from transformers import AutoTokenizer
 from scipy.stats import entropy
 import numpy as np
 import regex as re
@@ -118,26 +119,38 @@ class UscDatasetBuilder:
         assert("text" in self._ds.column_names)
 
         if cased:
-            self._tokenizer = BertTokenizerFast.from_pretrained(
-                "google-bert/bert-base-cased"
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                "google-bert/bert-base-cased",
+                use_fast = True
             )
         else:
-            self._tokenizer = BertTokenizerFast.from_pretrained(
-                "google-bert/bert-base-uncased"
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                "google-bert/bert-base-uncased",
+                use_fast = True
             )
         
-        print(self._tokenizer.is_fast)
-
         self._ds = self._ds.map(
-            lambda row: self._tokenizer(row["text"], return_tensors="np"), 
-            batched=True,
+            lambda x: {'tokens': self._tokenizer.tokenize(x['text'])},
             num_proc=num_proc
         )
+
+    def _calc_shannon_entropy(self, tokens):
+        
+        ## count occurrences of tokens
+        fd = FreqDist(tokens) 
+
+        ## convert counts to probabilities
+        values = [v for v in fd.values()]
+        probs = values/np.sum(values)
+
+        return entropy(probs)
+
+
 
     ## TODO: implement a version of "add_shannon_entropy" based on unique words
     ## so use str.split()
     def add_shannon_entropy(self) -> None:
-        """Calculates the Shannon Entropy from the numeric tokens created from
+        """Calculates the Shannon Entropy from the subword tokens created from
         UscDatasetBuilder.add_tokens and inserts the results in the 'entropy'
         column of the Dataset.
 
@@ -145,9 +158,11 @@ class UscDatasetBuilder:
         of the actual words, because--depending on the tokenizer--the tokens
         will include stemmed words like "sect#". 
         """
-        assert("input_ids" in self._ds.column_names)
-
-        self._ds = self._ds.map(lambda x: {'entropy': entropy(x['input_ids'])})
+        assert("tokens" in self._ds.column_names)
+        
+        self._ds = self._ds.map(
+            lambda x: {'entropy': self._calc_shannon_entropy(x['tokens'])}
+            )
         # print(self._ds['entropy'])
 
     def _extract_references(self, text, type) -> list[str]:
@@ -227,6 +242,8 @@ class UscDatasetBuilder:
         )
             
 
+    ## DON'T NEED THIS METHOD ANYMORE -- 'add tokens just splits into
+    ## word tokens now.
     def add_word_tokens(self) -> None:
         """Adds a column with the word tokens. The tokenizer used in add_tokens()
         just adds a column with numeric tokens. Functions like add_avg_token_length()
@@ -282,10 +299,10 @@ class UscDatasetBuilder:
         self._ds.to_csv(path)
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
-ds.add_avg_word_length()
-ds.add_size()
-ds.add_num_words()
-# ds.add_tokens()
+ds.add_tokens()
+# ds.add_avg_word_length()
+# ds.add_size()
+# ds.add_num_words()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
 # ds.add_avg_token_length()
@@ -293,4 +310,4 @@ ds.add_num_words()
 # ds.add_external_references()
 # ds.add_num_internal_refs()
 # ds.add_num_external_refs()
-ds.save("output/usc26_sections_modified.csv")
+# ds.save("output/usc26_sections_modified.csv")
