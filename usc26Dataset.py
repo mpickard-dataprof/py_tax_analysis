@@ -193,6 +193,7 @@ class UscDatasetBuilder:
             match.removesuffix("or").removesuffix("and").removesuffix(",").strip()
             for match in matches
         ]
+        print(matches)
         return matches
 
     def add_internal_references(self) -> None:
@@ -205,6 +206,7 @@ class UscDatasetBuilder:
             lambda x: {"internal_refs": self._extract_references(x['text'], "internal")}
         )
 
+        # print(self._ds["internal_refs"])
         # print(self._ds['internal_refs'])
 
     def add_external_references(self) -> None:
@@ -295,19 +297,19 @@ class UscDatasetBuilder:
             lambda x: {"num_words": len([word for word in x['text'].split()])}
         )
 
-    def save(self, path):
-        self._ds.to_csv(path)
+    def save(self, json_filepath):
+        self._ds.to_json(json_filepath)
 
 ds = UscDatasetBuilder("output/usc26_sections.csv")
-ds.add_tokens()
+# ds.add_tokens()
 # ds.add_avg_word_length()
 # ds.add_size()
 # ds.add_num_words()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
 # ds.add_avg_token_length()
-# ds.add_internal_references()
-# ds.add_external_references()
+ds.add_internal_references()
+ds.add_external_references()
 # ds.add_num_internal_refs()
 # ds.add_num_external_refs()
-# ds.save("output/usc26_sections_modified.csv")
+ds.save("output/usc26_sections_modified.json")
