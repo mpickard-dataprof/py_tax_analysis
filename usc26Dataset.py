@@ -193,7 +193,7 @@ class UscDatasetBuilder:
             match.removesuffix("or").removesuffix("and").removesuffix(",").strip()
             for match in matches
         ]
-        print(matches)
+        # print(matches)
         return matches
 
     def add_internal_references(self) -> None:
@@ -221,6 +221,8 @@ class UscDatasetBuilder:
 
         # print(self._ds['external_refs'])
 
+    def _split_reference(ref):
+        
     def add_num_external_refs(self):
         """Adds a column with the number of external references found in the section. 
         These are references external to the section (i.e., section and above).
@@ -310,6 +312,6 @@ ds = UscDatasetBuilder("output/usc26_sections.csv")
 # ds.add_avg_token_length()
 ds.add_internal_references()
 ds.add_external_references()
-# ds.add_num_internal_refs()
-# ds.add_num_external_refs()
+ds.add_num_internal_refs()
+ds.add_num_external_refs()
 ds.save("output/usc26_sections_modified.json")
