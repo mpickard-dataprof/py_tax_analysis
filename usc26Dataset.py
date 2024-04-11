@@ -59,8 +59,6 @@ class UscDatasetBuilder:
     # EXAMPLES: section 2503 * section 2012(d) * section 2010(c)(3) * Sections 2432(d)(3), 2351(c), or 1123
     __section_ref = r'\b[Ss]ections?(?>\s?(?>(?>\d{1,4}?(?>\(\w{1,3}\))*)|(?>(?>(?>and)|(?>or)))),?)+'
 
-    __external_refs = [__title_ref, __subtitle_ref, __chapter_ref, __subchapter_ref,
-                       __part_ref, __subpart_ref, __section_ref]
 
     ### INTERNAL REFERENCES regex definitions ###
 
@@ -88,8 +86,27 @@ class UscDatasetBuilder:
     # EXAMPLES: Subsubitem (aaa) * Subsubitems (aac), (aaa), (aac) * Subsubitems (eei), (ffe), (bff), or (aae) * Subsubitems (aad) or (aal)
     __subsubitem_ref = r'\b[Ss]ubsubitems?(?>\s?(?>(?>\(\w{1,4}\))|(?>(?>(?>and)|(?>or)))),?)+'
 
-    __internal_refs = [__subsection_ref, __paragraph_ref, __subparagraph_ref, __clause_ref,
-                       __subclause_ref, __item_ref, __subitem_ref, __subsubitem_ref]
+    __ref_patterns = {
+        # External reference patterns
+        "title": __title_ref, 
+        "subtitle": __subtitle_ref,
+        "chapter:": __chapter_ref,
+        "subchapter": __subchapter_ref,
+        "part": __part_ref,
+        "subpart": __subpart_ref,
+        "section": __section_ref,
+
+        #Internal reference patterns
+        "subsection": __subsection_ref,
+        "paragraph": __paragraph_ref,
+        "subparagraph": __subparagraph_ref,
+        "clause": __clause_ref,
+        "subclause": __subclause_ref,
+        "item": __item_ref,
+        "subitem": __subitem_ref,
+        "subsubitem": __subsubitem_ref
+    }
+
 
     def __init__(self, filepath) -> None:
         """Constructor for UscDatasetBuilder class. It loads a huggingface
@@ -165,64 +182,39 @@ class UscDatasetBuilder:
             )
         # print(self._ds['entropy'])
 
-    def _extract_references(self, text, type) -> list[str]:
-        """A utility function to find and return all the USC references--
-        either "external" or "internal" references--in the text provided.
+    def _extract_references(self, text, ref_pattern):
 
-        Args:
-            text (str): A string of text to match USC references in.
-            type (str): Specifics whether to match "internal" or "external" 
-            references. "internal" uses the list of regexes in 
-            UscDatasetBuilder.__internal_refs. "external" uses the list of
-            regexes in UscDatasetBuilder.__external_refs.
+        # find matches
+        matches = re.findall(ref_pattern, text)
 
-        Returns:
-            list[str]: A list of strings that are the matches references.
-        """
-        assert(type == "internal" or type == "external")
-        if (type == "internal"):
-            ref_patterns = self.__internal_refs
-        else: 
-            ref_patterns = self.__external_refs
+        if(not matches):
+            return []
 
-        matches = [re.findall(regex, text) for regex in ref_patterns]
-        matches = flatten_list(matches)
+        # split multiple references (joined by "and", "or", or commas)
+        matches = self._split_reference(matches)
 
-        ## second pass to clean up "or", "and" or commas at the end of a reference
-        matches = [
-            match.removesuffix("or").removesuffix("and").removesuffix(",").strip()
-            for match in matches
-        ]
-        # print(matches)
-        return matches
+        return flatten_list([matches])
 
-    def add_internal_references(self) -> None:
-        """Adds a column to the Dataset with a list of the matched internal
-        references found in the section text.
-        """
+    def add_references(self):
 
-        assert("text" in self._ds.column_names)
-        self._ds = self._ds.map(
-            lambda x: {"internal_refs": self._extract_references(x['text'], "internal")}
-        )
+        for level, pattern in self.__ref_patterns.items():
 
-        # print(self._ds["internal_refs"])
-        # print(self._ds['internal_refs'])
+            self._ds = self._ds.map(
+                lambda x: {level: self._extract_references(x['text'], pattern)}
+            )
 
-    def add_external_references(self) -> None:
-        """Adds a column to the Dataset with a list of the matched external
-        references found in the section text.
-        """
+    def _split_reference(self, ref_list):
+        refs = []
 
-        assert("text" in self._ds.column_names)
-        self._ds = self._ds.map(
-            lambda x: {"external_refs": self._extract_references(x['text'], "external")}
-        )
-
-        # print(self._ds['external_refs'])
-
-    def _split_reference(ref):
+        if (len(ref_list) == 0):
+            return refs
         
+        for ref in ref_list:
+            refs += [s.strip() for s in re.split("\s+or|,|and\s+", ref)]
+        
+        # remove empty items and "and" and "or" items
+        return list(filter(lambda x: (x != '' and x!="and" and x!="or"), refs))
+    
     def add_num_external_refs(self):
         """Adds a column with the number of external references found in the section. 
         These are references external to the section (i.e., section and above).
@@ -306,12 +298,9 @@ ds = UscDatasetBuilder("output/usc26_sections.csv")
 # ds.add_tokens()
 # ds.add_avg_word_length()
 # ds.add_size()
-# ds.add_num_words()
+ds.add_num_words()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
 # ds.add_avg_token_length()
-ds.add_internal_references()
-ds.add_external_references()
-ds.add_num_internal_refs()
-ds.add_num_external_refs()
+ds.add_references()
 ds.save("output/usc26_sections_modified.json")
