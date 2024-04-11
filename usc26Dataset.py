@@ -30,10 +30,10 @@ class UscDatasetBuilder:
     #    - "subparagraph (A)(ii)" refers to a clause
     #    - "sections 63(c)(4) and 151(d)(4)(A))" refers to a paragraph and
     #      a subparagraph
-    # so...will need to take this into account if we ever want a count 
+    # so...will need to take this into account if we ever want a count
     # references to specific internal levels (e.g., subsection, paragraph, etc).
     # The regex patterns were complicated and weren't completely sufficient--for
-    # example, the matches would have trailing commas, "or", and "and"--so I 
+    # example, the matches would have trailing commas, "or", and "and"--so I
     # took "after-match passes" to clean them up.
 
     ### EXTERNAL REFERENCE regex definitions ###
@@ -57,8 +57,8 @@ class UscDatasetBuilder:
     __subpart_ref = r'\b[Ss]ubparts?(?>\s?(?>(?>\b[A-Z]\b)|(?>(?>(?>and)|(?>or)))),?)+'
 
     # EXAMPLES: section 2503 * section 2012(d) * section 2010(c)(3) * Sections 2432(d)(3), 2351(c), or 1123
-    __section_ref = r'\b[Ss]ections?(?>\s?(?>(?>\d{1,4}?(?>\(\w{1,3}\))*)|(?>(?>(?>and)|(?>or)))),?)+'
-
+    # MORE EXAMPLES: section 54AA, section 1400Z-1
+    __section_ref = r'\b[Ss]ections?(?>\s?(?>(?>\d{1,4}(?>\w{1,2}-?\d?)(?>\(\w{1,3}\))*)|(?>(?>(?>and)|(?>or)))),?)+'
 
     ### INTERNAL REFERENCES regex definitions ###
 
@@ -107,7 +107,6 @@ class UscDatasetBuilder:
         "subsubitem": __subsubitem_ref
     }
 
-
     def __init__(self, filepath) -> None:
         """Constructor for UscDatasetBuilder class. It loads a huggingface
         Dataset
@@ -117,6 +116,10 @@ class UscDatasetBuilder:
         """
         self._ds = load_dataset("csv", data_files=filepath, split='train')
         # self._ds = self._ds.select(range(4))
+
+        self._section_index_dict = dict(
+            list(zip(self._ds["level_name"], range(1, len(self._ds["level_name"]))))
+        )
 
     # protected members
 
@@ -145,14 +148,14 @@ class UscDatasetBuilder:
                 "google-bert/bert-base-uncased",
                 use_fast = True
             )
-        
+
         self._ds = self._ds.map(
             lambda x: {'tokens': self._tokenizer.tokenize(x['text'])},
             num_proc=num_proc
         )
 
     def _calc_shannon_entropy(self, tokens):
-        
+
         ## count occurrences of tokens
         fd = FreqDist(tokens) 
 
@@ -161,8 +164,6 @@ class UscDatasetBuilder:
         probs = values/np.sum(values)
 
         return entropy(probs)
-
-
 
     ## TODO: implement a version of "add_shannon_entropy" based on unique words
     ## so use str.split()
@@ -176,7 +177,7 @@ class UscDatasetBuilder:
         will include stemmed words like "sect#". 
         """
         assert("tokens" in self._ds.column_names)
-        
+
         self._ds = self._ds.map(
             lambda x: {'entropy': self._calc_shannon_entropy(x['tokens'])}
             )
@@ -208,35 +209,34 @@ class UscDatasetBuilder:
 
         if (len(ref_list) == 0):
             return refs
-        
+
         for ref in ref_list:
             refs += [s.strip() for s in re.split("\s+or|,|and\s+", ref)]
-        
+
         # remove empty items and "and" and "or" items
         return list(filter(lambda x: (x != '' and x!="and" and x!="or"), refs))
-    
+
     def add_num_external_refs(self):
         """Adds a column with the number of external references found in the section. 
         These are references external to the section (i.e., section and above).
         """
         if("external_refs" not in self._ds.column_names):
             self.add_external_references()
-        
+
         self._ds = self._ds.map(
             lambda x: {"num_ext_refs": len(x["external_refs"])}
         )
-            
+
     def add_num_internal_refs(self):
         """Adds a colum with the number of internal references found in the section. 
         These are references internal to the section (i.e., subsection and below).
         """
         if("internal_refs" not in self._ds.column_names):
             self.add_internal_references()
-        
+
         self._ds = self._ds.map(
             lambda x: {"num_int_refs": len(x["internal_refs"])}
         )
-            
 
     ## DON'T NEED THIS METHOD ANYMORE -- 'add tokens just splits into
     ## word tokens now.
@@ -302,5 +302,7 @@ ds.add_num_words()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
 # ds.add_avg_token_length()
-ds.add_references()
-ds.save("output/usc26_sections_modified.json")
+# ds.add_references()
+# ds.save("output/usc26_sections_modified.json")
+print(ds._section_index_dict['1400Z–1'])
+
