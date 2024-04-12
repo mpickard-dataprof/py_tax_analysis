@@ -303,6 +303,12 @@ class UscReader:
         # just extract section tags
         section = "{"+self._namespace[""]+"}section"
         for element in self._root.iter(tag=section):
+
+            # if the section has been repealed, skip it
+            if ("status" in element.attrib):
+                if (element.attrib['status'] == 'repealed'):
+                    continue
+
             dict_data = self._extractSectionInfo(element)
 
             if dict_data != None:
