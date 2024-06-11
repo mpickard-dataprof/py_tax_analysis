@@ -12,6 +12,7 @@ def flatten_list(nested_list):
         flat_list += row
     return flat_list
 
+
 class UscDatasetBuilder:
 
     # NOTE: These regex patterns use atomic groups which are not natively
@@ -88,23 +89,23 @@ class UscDatasetBuilder:
 
     __ref_patterns = {
         # External reference patterns
-        "title": __title_ref, 
-        "subtitle": __subtitle_ref,
-        "chapter:": __chapter_ref,
-        "subchapter": __subchapter_ref,
-        "part": __part_ref,
-        "subpart": __subpart_ref,
+        # "title": __title_ref, 
+        # "subtitle": __subtitle_ref,
+        # "chapter:": __chapter_ref,
+        # "subchapter": __subchapter_ref,
+        # "part": __part_ref,
+        # "subpart": __subpart_ref,
         "section": __section_ref,
 
         #Internal reference patterns
-        "subsection": __subsection_ref,
-        "paragraph": __paragraph_ref,
-        "subparagraph": __subparagraph_ref,
-        "clause": __clause_ref,
-        "subclause": __subclause_ref,
-        "item": __item_ref,
-        "subitem": __subitem_ref,
-        "subsubitem": __subsubitem_ref
+        # "subsection": __subsection_ref,
+        # "paragraph": __paragraph_ref,
+        # "subparagraph": __subparagraph_ref,
+        # "clause": __clause_ref,
+        # "subclause": __subclause_ref,
+        # "item": __item_ref,
+        # "subitem": __subitem_ref,
+        # "subsubitem": __subsubitem_ref
     }
 
     def __init__(self, filepath) -> None:
@@ -117,13 +118,47 @@ class UscDatasetBuilder:
         self._ds = load_dataset("csv", data_files=filepath, split='train')
         # self._ds = self._ds.select(range(4))
 
+        # create a dict to map to index of the matrix where I'll count references
+        # to other sections
         self._section_index_dict = dict(
             list(zip(self._ds["level_name"], range(1, len(self._ds["level_name"]))))
         )
 
+        self.__logfile = open("output/logfile.txt", "w")
+
+            # this matrix will contain counts of references to other sections
+        self._ext_ref_matrix = None
+
+    def __del__(self):
+        self.__logfile.close()
+
+    def __log_reference_context(self, x, start, end):
+        # if 'of' does not exist in the context string, don't log it
+        context_string = x['text'][start:end+50]
+
+        conditions = [
+            # contains 'of'
+            context_string.find('of') >= 0, 
+            # contains title after section reference
+            re.search("[Tt]itle \d{1,4}",context_string)
+        ]
+
+        # if the some phrase like "of title 44" is not found
+        if not all(conditions):
+            return
+
+        s = x['level'] + " " + x['level_name'] + " (" + str(start) + "," + \
+            str(end) + "): " + x['text'][start-20:end+50] + '\n'
+        self.__logfile.write(s)
+        
     # protected members
 
     # public members
+    def __get_section_index(self, section):
+        if(section not in self._section_index_dict.keys()):
+            return None
+        return self._section_index_dict[section]
+
     def add_tokens(self, cased=False, num_proc=6) -> None:
         """Creates a huggingface Tokenizer and adds a column to the Dataset
         with a list of the tokens from the Tokenizer. The tokens are extract
@@ -136,7 +171,7 @@ class UscDatasetBuilder:
             to 6.
         """
 
-        assert("text" in self._ds.column_names)
+        assert(y)
 
         if cased:
             self._tokenizer = AutoTokenizer.from_pretrained(
@@ -183,10 +218,20 @@ class UscDatasetBuilder:
             )
         # print(self._ds['entropy'])
 
-    def _extract_references(self, text, ref_pattern):
+
+    def _extract_references(self, x, ref_pattern):
 
         # find matches
-        matches = re.findall(ref_pattern, text)
+        # matches = re.findall(ref_pattern, x['text'])
+        matches = []
+        p = re.compile(ref_pattern)
+        for m in p.finditer(x['text']):
+            m_text = x['text'][m.start():m.end()]
+            if (len(m_text) > 7 and m_text[:7] == 'section'):
+                # check if the section belongs to another title,
+                # besides Title 26
+                self.__log_reference_context(x, m.start(), m.end())
+            matches.append(m_text)
 
         if(not matches):
             return []
@@ -201,7 +246,7 @@ class UscDatasetBuilder:
         for level, pattern in self.__ref_patterns.items():
 
             self._ds = self._ds.map(
-                lambda x: {level: self._extract_references(x['text'], pattern)}
+                lambda x: {level: self._extract_references(x, pattern)}
             )
 
     def _split_reference(self, ref_list):
@@ -211,10 +256,23 @@ class UscDatasetBuilder:
             return refs
 
         for ref in ref_list:
+            ## the ref_list is not completely pure "section [number]" strings
+            ## we only want "section [number]" strings so when we count the
+            ## number of section references, we can just take find len(x['section'])
+            exclude = [
+                ref == "section and",
+                ref == "section and,",
+                ref == "section or",
+                ref == "section or,",
+                ref == 'section'
+            ]
+            if any(exclude):
+                continue
             refs += [s.strip() for s in re.split("\s+or|,|and\s+", ref)]
 
         # remove empty items and "and" and "or" items
-        return list(filter(lambda x: (x != '' and x!="and" and x!="or"), refs))
+        l = list(filter(lambda x: (x != '' and x!="and" and x!="or"), refs))
+        return l
 
     def add_num_external_refs(self):
         """Adds a column with the number of external references found in the section. 
@@ -253,6 +311,49 @@ class UscDatasetBuilder:
             lambda x: {"tokens": self._tokenizer.convert_ids_to_tokens(x["input_ids"])}
         )
         # print(self._ds['tokens'][1])
+
+    def _count_external_references(self, x):
+
+        current_section_index = self.__get_section_index(x['level_name'])
+
+        for i in x['section']:
+            ## 1) match section number in the reference, there should only be
+            ## one match per list item
+            m = re.search("\d{1,4}(?>\w{1,2}-?\d?)", i)
+            start, end = m.span()
+            match = i[start:end]
+            ## every item in the section column should contain one and only
+            ## one section reference
+            assert(len(m) == 1) 
+
+            ## 2) get referenced section index
+            ref_section_index = self.__get_section_index(match)
+
+            if (not ref_section_index):
+                # report that the section reference was not found in the dictionary
+                print(
+                    "Does not exist: " + i + " in " + x["level"] + " " + x["level_name"]
+                )
+                # move onto next reference
+                continue
+
+            ## 3) use current section index and referenced section index to
+            ## increment correct position in matrix
+            self._ext_ref_matrix[current_section_index, ref_section_index] += 1
+
+    def create_ext_ref_matrix(self):
+        ## add_references() needs to have been called first
+        if ("section" not in self._ds.column_names):
+            self.add_references()
+
+        ## initialize the matrix
+        n = len(self._section_index_dict)
+        self._ext_ref_matrix = np.zeros((n,n), dtype=int)
+
+        self._ds.map(self._count_external_references)
+
+    def get_external_ref_matrix(self):
+        return self._ext_ref_matrix
 
     def _get_word_lengths(self, text):
         return [len(word) for word in text.split()]
@@ -298,11 +399,11 @@ ds = UscDatasetBuilder("output/usc26_sections.csv")
 # ds.add_tokens()
 # ds.add_avg_word_length()
 # ds.add_size()
-ds.add_num_words()
+# ds.add_num_words()
 # ds.add_shannon_entropy()
 # ds.add_word_tokens()
 # ds.add_avg_token_length()
-# ds.add_references()
-# ds.save("output/usc26_sections_modified.json")
-print(ds._section_index_dict['1400Z–1'])
-
+ds.add_references()
+# ds.create_ext_ref_matrix()
+ds.save("output/usc26_sections_modified.json")
+# print(ds._section_index_dict['1400Z–1'])
