@@ -64,6 +64,10 @@ class UscDatasetBuilder:
     # MORE EXAMPLES: section 54AA, section 1400Z-1
     __section_ref = r'\b[Ss]ections?(?>\s?(?>(?>\d{1,4}(?>\w{1,2}-?\d?)(?>\(\w{1,3}\))*)|(?>(?>(?>and)|(?>or)))),?)+'
 
+    ## TODO: Handle section sequences connected with "through".  For example,
+    ## in Section 30B: "sections 30101 through 30169".  Here's the initial pattern
+    ## __section_sequence_ref = r'sections \d+ through \d+'
+
     ### INTERNAL REFERENCES regex definitions ###
 
     # EXAMPLES: subsection (d) * Subsection (e)(1)(C) * subsections (b)(1), (c), (e)(1)(C) * subsection (b)(1) or (b)(2)
