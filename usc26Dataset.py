@@ -37,6 +37,9 @@ class UscDatasetBuilder:
     # example, the matches would have trailing commas, "or", and "and"--so I
     # took "after-match passes" to clean them up.
 
+    ### CONSTANTS ###
+    __USC_STR = "United States Code"
+
     ### EXTERNAL REFERENCE regex definitions ###
 
     # EXAMPLES: Title 9 * Title 18a * titles 9 and 10 * Titles 9, 12a, 13, or 15
@@ -132,22 +135,12 @@ class UscDatasetBuilder:
     def __del__(self):
         self.__logfile.close()
 
-    def __log_reference_context(self, x, start, end):
-        # if 'of' does not exist in the context string, don't log it
-        context_string = x['text'][start:end+50]
-
-        conditions = [
-            # contains 'of'
-            context_string.find('of') >= 0, 
-            # contains title after section reference
-            re.search("[Tt]itle \d{1,4}",context_string)
-        ]
-
-        # if the some phrase like "of title 44" is not found
-        if not all(conditions):
-            return
-
-        s = x['level'] + " " + x['level_name'] + " (" + str(start) + "," + \
+# this function extracts extra text around the section reference to help me
+# further analyze what the reference refers to.
+## NOTE: consider adding a label argument so I can log how I'm categorizing it
+## (i.e., USC or non-USC section)
+    def __log_reference_context(self, x, pretext, start, end):
+        s = pretext + " --> " + x['level'] + " " + x['level_name'] + " (" + str(start) + "," + \
             str(end) + "): " + x['text'][start-20:end+50] + '\n'
         self.__logfile.write(s)
         
@@ -218,26 +211,83 @@ class UscDatasetBuilder:
             )
         # print(self._ds['entropy'])
 
-
+    # Function purpose - extract and categorize section references
+    # for each match found in the seciton text, test to see if it is a reference that points
+    # to an external USC title. Possible categorizations include:
+    # 1) External USC title
+    # 2) External non-USC reference
+    # 3) Internal reference to current USC section? 
     def _extract_references(self, x, ref_pattern):
+        search_window_size = 20
 
         # find matches
         # matches = re.findall(ref_pattern, x['text'])
         matches = []
         p = re.compile(ref_pattern)
+
         for m in p.finditer(x['text']):
-            m_text = x['text'][m.start():m.end()]
-            if (len(m_text) > 7 and m_text[:7] == 'section'):
-                # check if the section belongs to another title,
-                # besides Title 26
-                self.__log_reference_context(x, m.start(), m.end())
-            matches.append(m_text)
+            ref = x['text'][m.start():m.end()]
+
+            refs = self._split_reference([ref])
+            if(refs == []):
+                continue
+
+            for ref in refs:
+                
+                # var to label reference type
+                ref_type = ""
+
+                # get target section number
+                section_num = re.search("\d{1,4}", ref ).group()
+
+                # looking for "United States Code" to begin within search_window_size characters 
+                # of the end of the section reference
+                end_of_context = m.end() + search_window_size + len(self.__USC_STR)
+
+                # extract extra text after "section" to analyze what the section
+                # reference points to (i.e., another USC section or another non-USC document)
+                context_string = x['text'][m.start():end_of_context]
+                
+                # If "title" is found, then it's an external reference (just need to categorize it as
+                # a specific type of external reference)
+                # NOTE: assuming "title" appears after section reference; there may be instances where
+                # the info identifying the target of the reference appears before "section"
+
+                # check if "title" is found in context_string, if so 
+                # EXTERNAL REFERENCE
+                if(re.search("[Tt]itle \d{1,4}",context_string)):
+                    # EXTERNAL REFERENCE
+                    if(context_string.find(self.__USC_STR) >= 0):
+                        # EXTERNAL REFERENCE to another USC Title
+                        # >~95% of the section references I analyzed that pointed to another title in the USC
+                        # had something like "title 49, United States Code[,.]".
+                        ref_type = "EXT_USC"
+
+                    else:
+                        # if the wording "such Code" follows the reference, then assume it's referring to
+                        # the same document (and therefore is of the same reference type) as the 
+                        # prior reference.  NOTE: this is not perfect, but hopefully better than leaving this
+                        # code out
+                        if(context_string.find("such Code") >= 0):
+                            # SAME AS PRIOR REFERENCE
+                            ref_type = matches[-1][1]
+                        else:
+                            # EXTERNAL REFERENCE to a non-USC document
+                            ref_type = "EXT_NON_USC"
+                else:
+                    # INTERNAL REFERENCE
+                    # Check if it exists in __section_index_dict
+                    ref_type = "INT"
+
+                    if(not self.__get_section_index(section_num)):
+                        ref_type = "UNKOWN"
+
+                # only log reference if it does not point to USC
+                self.__log_reference_context(x, ref_type, m.start(), m.end())
+            matches.append((ref, ref_type))
 
         if(not matches):
             return []
-
-        # split multiple references (joined by "and", "or", or commas)
-        matches = self._split_reference(matches)
 
         return flatten_list([matches])
 
@@ -316,23 +366,29 @@ class UscDatasetBuilder:
 
         current_section_index = self.__get_section_index(x['level_name'])
 
-        for i in x['section']:
+        ## process the list of section references extracted (which is contained in x['section'])
+        for sectionref in x['section']:
             ## 1) match section number in the reference, there should only be
             ## one match per list item
-            m = re.search("\d{1,4}(?>\w{1,2}-?\d?)", i)
-            start, end = m.span()
-            match = i[start:end]
+            
+            # pattern to match section number with possible subsection
+            m = re.search("\d{1,4}(?>\w{1,2}-?\d?)", sectionref)
+
             ## every item in the section column should contain one and only
             ## one section reference
             assert(len(m) == 1) 
 
+            start, end = m.span()
+            sectionnum = sectionref[start:end]
+
+
             ## 2) get referenced section index
-            ref_section_index = self.__get_section_index(match)
+            ref_section_index = self.__get_section_index(sectionnum)
 
             if (not ref_section_index):
                 # report that the section reference was not found in the dictionary
                 print(
-                    "Does not exist: " + i + " in " + x["level"] + " " + x["level_name"]
+                    "Does not exist: " + sectionref + " in " + x["level"] + " " + x["level_name"]
                 )
                 # move onto next reference
                 continue
